@@ -78,7 +78,7 @@ class BroadcastSubscriber implements EventSubscriberInterface
 
         /** @var Email $email */
         while (($email = $emails->next()) !== false) {
-            list($sentCount, $failedCount, $ignore) = $this->model->sendEmailToLists($email[0], null, 500, true, $output);
+            list($sentCount, $failedCount, $ignore) = $this->model->sendEmailToLists($email[0], null, 1000, true, $output);
 
             $event->setResults($this->translator->trans('mautic.email.email').': '.$email[0]->getName(), $sentCount, $failedCount);
             $this->em->detach($email[0]);
