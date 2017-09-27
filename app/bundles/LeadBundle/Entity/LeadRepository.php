@@ -291,6 +291,23 @@ class LeadRepository extends CommonRepository implements CustomFieldRepositoryIn
         }
     }
 
+    public function getLeadByEmailExact($email, $all = false)
+    {
+        $q = $this->getEntityManager()->getConnection()->createQueryBuilder()
+            ->select('l.id')
+            ->from(MAUTIC_TABLE_PREFIX.'leads', 'l')
+            ->where('email = :search')
+            ->setParameter('search', $email);
+
+        $result = $q->execute()->fetchAll();
+
+        if (count($result)) {
+            return $all ? $result : $result[0];
+        } else {
+            return;
+        }
+    }
+
     /**
      * Get leads by IP address.
      *
