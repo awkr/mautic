@@ -72,7 +72,7 @@ class AwsSendEmailCommand extends ModeratedCommand
 
             $promise->wait();
 
-            $promise->then(function ($value) { // fullfilled
+            $promise->then(function ($value) { // fulfilled
             }, function ($reason) { // rejected
             });
 
@@ -134,6 +134,7 @@ class AwsSendEmailCommand extends ModeratedCommand
 
                 $filePath = $file->getRealPath();
                 $sendingPath = $filePath . '.sending';
+                $failedPath = $filePath . '.failed';
 
                 $message = unserialize(file_get_contents($filePath));
 
@@ -147,12 +148,12 @@ class AwsSendEmailCommand extends ModeratedCommand
                     ]
                 ]);
                 $command->getHandlerList()->appendSign(
-                    Middleware::mapResult(function (ResultInterface $result) use ($sendingPath) {
-			if ($result->get('@metadata')['statusCode'] == 200) {
-                          	unlink($sendingPath); // remove file
+                    Middleware::mapResult(function (ResultInterface $result) use ($sendingPath, $failedPath) {
+                        if ($result->get('@metadata')['statusCode'] == 200) {
+                            unlink($sendingPath);
+                        } else {
+                            rename($sendingPath, $failedPath); // mark this message to failed if the response is failed
                         }
-
-                        // todo: mark this message to failed if the response is failed
 
                         return $result;
                     })
