@@ -7,6 +7,7 @@ use Aws\CommandPool;
 use Aws\Exception\AwsException;
 use Aws\Middleware;
 use Aws\ResultInterface;
+use Aws\Sdk;
 use Aws\Ses\SesClient;
 use GuzzleHttp\Promise\PromiseInterface;
 use Mautic\CoreBundle\Command\ModeratedCommand;
@@ -18,26 +19,11 @@ class AwsSendEmailCommand extends ModeratedCommand
 {
     use ConfigAwareTrait;
 
-    private static $ExtMessage = '.message';
-    private static $ExtSending = '.sending';
-    private static $ExtFailed = '.failed';
-
-    private static $CONCURRENCY = 150;
-
-    private static $Cmd_SendRawEmail = 'SendRawEmail';
-
-    private static $Key_ses_conf = 'ses_conf';
-    private static $Key_version = 'version';
-    private static $Key_region = 'region';
-    private static $Key_credentials = 'credentials';
-    private static $Key_key = 'key';
-    private static $Key_secret = 'secret';
-
     protected function configure()
     {
         $this
             ->setName('mautic:email:batch_send')
-            ->setDescription('send emails via AWS SES。Note: only process message files located in $mailer_spool_path$/default'); // todo
+            ->setDescription('send emails via AWS SES');
 
         parent::configure();
     }
@@ -55,52 +41,48 @@ class AwsSendEmailCommand extends ModeratedCommand
         $spoolPath = $container->getParameter('mautic.mailer_spool_path') . '/default';
         $files = new \DirectoryIterator($spoolPath);
 
-        if (!file_exists($spoolPath)) { // nothing to do
+        if (!file_exists($spoolPath)) {
             $this->completeRun();
 
             return 0;
         }
 
         try {
-            $output->writeln('task start');
+            $output->writeln('start');
 
-            $c = $this->getConf();
+            $sdk = new Sdk($this->getSesConf());
+            $sesClient = $sdk->createSes();
 
-            $sesClient = new SesClient($c);
+            $generator = $this->commandGenerator($sesClient);
 
-            $commandGenerator = $this->getCommandGenerator($sesClient);
-
-            $pool = new CommandPool($sesClient, $commandGenerator($files), [
-                'concurrency' => self::$CONCURRENCY,
+            $pool = new CommandPool($sesClient, $generator($files), [
+                'concurrency' => 150,
                 'before' => function (CommandInterface $cmd, $iterKey) {
-//                echo "about to send {$iterKey}: " . print_r($cmd->toArray(), true) . "\n";
                 },
                 'fulfilled' => function (ResultInterface $result, $iterKey, PromiseInterface $aggregatePromise
                 ) {
-//                echo "completed {$iterKey}: {$result}\n";
                 },
                 'rejected' => function (AwsException $reason, $iterKey, PromiseInterface $aggregatePromise
                 ) {
-//                echo "failed {$iterKey}: {$reason}\n";
-                }]);
+                    throw $reason;
+                }
+            ]);
 
             $promise = $pool->promise();
 
             $promise->wait();
 
             $promise->then(function ($value) {
-//                $this->output->writeln("the promise was fulfilled with {$value}");
+                $this->output->writeln("the promise was fulfilled with {$value}");
             }, function ($reason) {
-//                $this->output->writeln("the promise was rejected with {$reason}");
+                $this->output->writeln("the promise was rejected with {$reason}");
             });
 
-            $output->writeln('task finished');
+            $output->writeln('done');
 
             return 0;
-        } catch (\Exception $ex) {
-            $output->writeln('caught exception: ' . $ex->getMessage());
-
-            $output->writeln('task failed');
+        } catch (\Exception $e) {
+            $output->writeln("error: {$e->getMessage()}");
 
             return -1;
         } finally {
@@ -108,75 +90,71 @@ class AwsSendEmailCommand extends ModeratedCommand
         }
     }
 
-    // check & get ses conf
-    private function getConf()
+    /**
+     * @return mixed
+     * @throws \Exception
+     */
+    private function getSesConf()
     {
         $c = $this->getConfig();
 
-        if (!array_key_exists(self::$Key_ses_conf, $c)) {
+        if (!array_key_exists('ses_conf', $c)) {
             throw new \Exception('no ses conf');
         }
 
-        $ses = $c[self::$Key_ses_conf];
+        $ses = $c['ses_conf'];
 
-        if (!array_key_exists(self::$Key_version, $ses) || empty($ses[self::$Key_version])) {
-            throw new \Exception('no version in ses conf');
+        if (!array_key_exists('version', $ses) || empty($ses['version'])) {
+            throw new \Exception('no version');
         }
 
-        if (!array_key_exists(self::$Key_region, $ses) || empty($ses[self::$Key_region])) {
-            throw new \Exception('no region in ses conf');
+        if (!array_key_exists('region', $ses) || empty($ses['region'])) {
+            throw new \Exception('no region');
         }
 
-        if (!array_key_exists(self::$Key_credentials, $ses)) {
-            throw new \Exception('no credentials in ses conf');
+        if (!array_key_exists('credentials', $ses)) {
+            throw new \Exception('no credentials');
         }
 
-        $credentials = $ses[self::$Key_credentials];
+        $credentials = $ses['credentials'];
 
-        if ((!array_key_exists(self::$Key_key, $credentials) || empty($credentials[self::$Key_key]))
-            || (!array_key_exists(self::$Key_secret, $credentials) || empty($credentials[self::$Key_secret]))) {
-            throw new \Exception('no key or secret in ses conf');
+        if ((!array_key_exists('key', $credentials) || empty($credentials['key']))
+            || (!array_key_exists('secret', $credentials) || empty($credentials['secret']))) {
+            throw new \Exception('no key or secret');
         }
 
         return $ses;
     }
 
-    private function getCommandGenerator($sesClient)
+    private function commandGenerator(SesClient $sesClient)
     {
         return function (\Iterator $files) use ($sesClient) {
             foreach ($files as $file) {
-                if (!$this->endWith($file->getFilename(), self::$ExtMessage)) { // todo handle failed messages
+                if (!$this->endWith($file->getFilename(), '.message')) {
                     continue;
                 }
 
                 $filePath = $file->getRealPath();
+                $sendingPath = $filePath . '.sending';
 
                 $message = unserialize(file_get_contents($filePath));
 
-                // empty file will case type assertion exception
-                if (empty($message)) {
-                    $this->output->writeln("warning: empty file {$filePath}");
-
+                if (empty($message) || !$reversePath = $this->getReversePath($message) || !rename($filePath, $sendingPath)) {
                     continue;
                 }
 
-                if (!$reversePath = $this->getReversePath($message)) {
-                    continue;
-                }
+                $command = $sesClient->getCommand('SendRawEmail', [
+                    'RawMessage' => [
+                        'Data' => $message->toString(),
+                    ]
+                ]);
+                $command->getHandlerList()->appendSign(
+                    Middleware::mapResult(function (ResultInterface $result) use ($sendingPath) {
+                        echo $result->toArray();
 
-                // try a rename, it's an atomic operation, and avoid locking the file
-                if (!rename($filePath, $filePath . self::$ExtSending)) {
-                    continue;
-                }
-
-                $command = $sesClient->getCommand(self::$Cmd_SendRawEmail, $this->assembleParamOfRawMessage($message));
-
-                $handlerList = $command->getHandlerList();
-                $handlerList->appendSign(
-                    Middleware::mapResult(function (ResultInterface $result) use ($filePath) {
                         // todo: mark this message to failed if the response is failed
 
-                        unlink($filePath . self::$ExtSending); // remove file
+                        unlink($sendingPath); // remove file
 
                         return $result;
                     })
@@ -215,14 +193,5 @@ class AwsSendEmailCommand extends ModeratedCommand
         }
 
         return $path;
-    }
-
-    private function assembleParamOfRawMessage(\Swift_Mime_Message $message)
-    {
-        return [
-            'RawMessage' => [
-                'Data' => $message->toString(),
-            ]
-        ];
     }
 }
