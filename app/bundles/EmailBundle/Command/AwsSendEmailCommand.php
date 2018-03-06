@@ -72,10 +72,8 @@ class AwsSendEmailCommand extends ModeratedCommand
 
             $promise->wait();
 
-            $promise->then(function ($value) {
-                $this->output->writeln("the promise was fulfilled with {$value}");
-            }, function ($reason) {
-                $this->output->writeln("the promise was rejected with {$reason}");
+            $promise->then(function ($value) { // fullfilled
+            }, function ($reason) { // rejected
             });
 
             $output->writeln('done');
@@ -139,7 +137,7 @@ class AwsSendEmailCommand extends ModeratedCommand
 
                 $message = unserialize(file_get_contents($filePath));
 
-                if (empty($message) || !$reversePath = $this->getReversePath($message) || !rename($filePath, $sendingPath)) {
+                if (empty($message) || !$this->getReversePath($message) || !rename($filePath, $sendingPath)) {
                     continue;
                 }
 
@@ -150,11 +148,11 @@ class AwsSendEmailCommand extends ModeratedCommand
                 ]);
                 $command->getHandlerList()->appendSign(
                     Middleware::mapResult(function (ResultInterface $result) use ($sendingPath) {
-                        echo $result->toArray();
+			if ($result->get('@metadata')['statusCode'] == 200) {
+                          	unlink($sendingPath); // remove file
+                        }
 
                         // todo: mark this message to failed if the response is failed
-
-                        unlink($sendingPath); // remove file
 
                         return $result;
                     })
