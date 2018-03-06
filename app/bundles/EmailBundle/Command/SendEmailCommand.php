@@ -143,13 +143,16 @@ class SendEmailCommand extends ModeratedCommand
                     continue;
                 }
 
-                $filePath = $file->getRealPath();
-                $sendingPath = $filePath . '.sending';
-                $failedPath = $filePath . '.failed';
+                $path = $file->getRealPath();
+                $sendingPath = $path . '.sending';
+                $failedPath = $path . '.failed';
 
-                $message = unserialize(file_get_contents($filePath));
+                $message = unserialize(file_get_contents($path));
+                if ($message === false || !is_object($message) || get_class($message) !== 'Swift_Message') {
+                    continue;
+                }
 
-                if (empty($message) || !$this->getReversePath($message) || !rename($filePath, $sendingPath)) {
+                if (!rename($path, $sendingPath)) {
                     continue;
                 }
 
@@ -181,27 +184,5 @@ class SendEmailCommand extends ModeratedCommand
         $testlen = strlen($test);
         if ($testlen > $strlen) return false;
         return substr_compare($string, $test, $strlen - $testlen, $testlen) === 0;
-    }
-
-    private function getReversePath(\Swift_Mime_Message $message)
-    {
-        $return = $message->getReturnPath();
-        $sender = $message->getSender();
-        $from = $message->getFrom();
-
-        $path = null;
-
-        if (!empty($return)) {
-            $path = $return;
-        } elseif (!empty($sender)) {
-            // don't use array_keys
-            reset($sender); // reset Pointer to first pos
-            $path = key($sender); // get key
-        } elseif (!empty($from)) {
-            reset($from);
-            $path = key($from);
-        }
-
-        return $path;
     }
 }
