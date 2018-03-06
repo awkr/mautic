@@ -12,12 +12,17 @@ use Aws\Ses\SesClient;
 use GuzzleHttp\Promise\PromiseInterface;
 use Mautic\CoreBundle\Command\ModeratedCommand;
 use Mautic\Middleware\ConfigAwareTrait;
+use Monolog\Formatter\LineFormatter;
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class AwsSendEmailCommand extends ModeratedCommand
 {
     use ConfigAwareTrait;
+
+    private $logger;
 
     protected function configure()
     {
@@ -34,21 +39,25 @@ class AwsSendEmailCommand extends ModeratedCommand
             return 0;
         }
 
-        $output->setVerbosity(OutputInterface::VERBOSITY_DEBUG);
-
-        $container = $this->getContainer();
-
-        $spoolPath = $container->getParameter('mautic.mailer_spool_path') . '/default';
-        $files = new \DirectoryIterator($spoolPath);
-
+        $spoolPath = $this->getContainer()->getParameter('mautic.mailer_spool_path') . '/default';
         if (!file_exists($spoolPath)) {
             $this->completeRun();
 
             return 0;
         }
 
+        $files = new \DirectoryIterator($spoolPath);
+
         try {
-            $output->writeln('start');
+            $this->logger = new Logger('mailSender');
+
+            $formatter = new LineFormatter("%datetime% %level_name% %message%\n", null, false, true);
+
+            $handler = new StreamHandler('php://stdout');
+            $handler->setFormatter($formatter);
+            $this->logger->pushHandler($handler);
+
+            $this->logger->info('start');
 
             $sdk = new Sdk($this->getSesConf());
             $sesClient = $sdk->createSes();
@@ -76,11 +85,11 @@ class AwsSendEmailCommand extends ModeratedCommand
             }, function ($reason) { // rejected
             });
 
-            $output->writeln('done');
+            $this->logger->info('done');
 
             return 0;
         } catch (\Exception $e) {
-            $output->writeln("error: {$e->getMessage()}");
+            $this->logger->err("error: {$e->getMessage()}");
 
             return -1;
         } finally {
