@@ -18,7 +18,7 @@ use Monolog\Logger;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-class AwsSendEmailCommand extends ModeratedCommand
+class SendEmailCommand extends ModeratedCommand
 {
     use ConfigAwareTrait;
 
