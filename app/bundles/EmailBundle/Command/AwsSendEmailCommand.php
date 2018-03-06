@@ -51,7 +51,7 @@ class AwsSendEmailCommand extends ModeratedCommand
         try {
             $this->logger = new Logger('mailSender');
 
-            $formatter = new LineFormatter("%datetime% %level_name% %message%\n", null, false, true);
+            $formatter = new LineFormatter("%datetime% %level_name% %message% %context% %extra%\n", null, false, true);
 
             $handler = new StreamHandler('php://stdout');
             $handler->setFormatter($formatter);
@@ -89,7 +89,7 @@ class AwsSendEmailCommand extends ModeratedCommand
 
             return 0;
         } catch (\Exception $e) {
-            $this->logger->err("error: {$e->getMessage()}");
+            $this->logger->err('exception', ['message' => $e->getMessage()]);
 
             return -1;
         } finally {
