@@ -64,12 +64,14 @@ class SendEmailCommand extends ModeratedCommand
 
             $generator = $this->commandGenerator($sesClient);
 
+            $sent = 0;
+
             $pool = new CommandPool($sesClient, $generator($files), [
                 'concurrency' => 150,
                 'before' => function (CommandInterface $cmd, $iterKey) {
                 },
-                'fulfilled' => function (ResultInterface $result, $iterKey, PromiseInterface $aggregatePromise
-                ) {
+                'fulfilled' => function (ResultInterface $result, $iterKey, PromiseInterface $aggregatePromise) use (&$sent) {
+                    ++$sent;
                 },
                 'rejected' => function (AwsException $reason, $iterKey, PromiseInterface $aggregatePromise
                 ) {
@@ -85,7 +87,7 @@ class SendEmailCommand extends ModeratedCommand
             }, function ($reason) { // rejected
             });
 
-            $this->logger->info('done');
+            $this->logger->info('done', ['sent' => $sent]);
 
             return 0;
         } catch (\Exception $e) {
