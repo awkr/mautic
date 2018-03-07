@@ -139,20 +139,24 @@ class SendEmailCommand extends ModeratedCommand
     {
         return function (\Iterator $files) use ($sesClient) {
             foreach ($files as $file) {
-                if (!$this->endWith($file->getFilename(), '.message')) {
+                $path = $file->getRealPath();
+
+                if (!$this->endWith($path, '.message') && !$this->endWith($path, '.message.sending')
+                    && !$this->endWith($path, '.message.tryagain') && !$this->endWith($path, '.message.finalretry')) {
                     continue;
                 }
 
-                $path = $file->getRealPath();
-                $sendingPath = $path . '.sending';
-                $failedPath = $path . '.failed';
+                if ((time() - filectime($path)) > 2 * 24 * 3600) { // file is old enough to process
+                    continue;
+                }
 
-                $message = unserialize(file_get_contents($path));
+                $message = unserialize(file_get_contents($file->getRealPath()));
                 if ($message === false || !is_object($message) || get_class($message) !== 'Swift_Message') {
                     continue;
                 }
 
-                if (!rename($path, $sendingPath)) {
+                $sending = $path . '.sending';
+                if (!rename($path, $sending)) {
                     continue;
                 }
 
@@ -162,11 +166,17 @@ class SendEmailCommand extends ModeratedCommand
                     ]
                 ]);
                 $command->getHandlerList()->appendSign(
-                    Middleware::mapResult(function (ResultInterface $result) use ($sendingPath, $failedPath) {
+                    Middleware::mapResult(function (ResultInterface $result) use ($path, $sending) {
                         if ($result->get('@metadata')['statusCode'] == 200) {
-                            unlink($sendingPath);
+                            unlink($sending);
                         } else {
-                            rename($sendingPath, $failedPath); // mark this message to failed if the response is failed
+                            if ($this->endWith($path, '.finalretry')) {
+                                unlink($sending);
+                            } else if (!$this->endWith($path, '.tryagain')) {
+                                rename($sending, $path . 'finalretry');
+                            } else if (!$this->endWith($path, '.sending')) {
+                                rename($sending, $path . 'tryagain');
+                            }
                         }
 
                         return $result;
