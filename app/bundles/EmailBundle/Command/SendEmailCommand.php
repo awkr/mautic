@@ -139,14 +139,14 @@ class SendEmailCommand extends ModeratedCommand
     {
         return function (\Iterator $files) use ($sesClient) {
             foreach ($files as $file) {
-                $path = $file->getRealPath();
+                $originPath = $file->getRealPath();
 
-                if (!$this->endWith($path, '.message') && !$this->endWith($path, '.message.sending')
-                    && !$this->endWith($path, '.message.tryagain') && !$this->endWith($path, '.message.finalretry')) {
+                if (!$this->endWith($originPath, '.message') && !$this->endWith($originPath, '.message.sending')
+                    && !$this->endWith($originPath, '.message.tryagain') && !$this->endWith($originPath, '.message.finalretry')) {
                     continue;
                 }
 
-                if ((time() - filectime($path)) > 2 * 24 * 3600) { // file is old enough to process
+                if ((time() - filectime($originPath)) > 2 * 24 * 3600) { // file is old enough to process
                     continue;
                 }
 
@@ -155,8 +155,9 @@ class SendEmailCommand extends ModeratedCommand
                     continue;
                 }
 
-                $sending = $path . '.sending';
-                if (!rename($path, $sending)) {
+                $cleanPath = str_replace(['.finalretry', '.sending', '.tryagain'], '', $originPath);
+                $sending = $cleanPath . '.sending';
+                if (!rename($originPath, $sending)) {
                     continue;
                 }
 
@@ -166,16 +167,16 @@ class SendEmailCommand extends ModeratedCommand
                     ]
                 ]);
                 $command->getHandlerList()->appendSign(
-                    Middleware::mapResult(function (ResultInterface $result) use ($path, $sending) {
+                    Middleware::mapResult(function (ResultInterface $result) use ($originPath, $cleanPath, $sending) {
                         if ($result->get('@metadata')['statusCode'] == 200) {
                             unlink($sending);
                         } else {
-                            if ($this->endWith($path, '.finalretry')) {
+                            if ($this->endWith($originPath, '.finalretry')) {
                                 unlink($sending);
-                            } else if (!$this->endWith($path, '.tryagain')) {
-                                rename($sending, $path . 'finalretry');
-                            } else if (!$this->endWith($path, '.sending')) {
-                                rename($sending, $path . 'tryagain');
+                            } else if (!$this->endWith($originPath, '.tryagain')) {
+                                rename($sending, $cleanPath . 'finalretry');
+                            } else if (!$this->endWith($originPath, '.sending')) {
+                                rename($sending, $cleanPath . 'tryagain');
                             }
                         }
 
