@@ -139,25 +139,25 @@ class SendEmailCommand extends ModeratedCommand
     {
         return function (\Iterator $files) use ($sesClient) {
             foreach ($files as $file) {
-                $originPath = $file->getRealPath();
+                $origin = $file->getRealPath();
 
-                if (!$this->endWith($originPath, '.message') && !$this->endWith($originPath, '.message.sending')
-                    && !$this->endWith($originPath, '.message.tryagain') && !$this->endWith($originPath, '.message.finalretry')) {
+                if (!$this->endWith($origin, '.message') && !$this->endWith($origin, '.message.sending')
+                    && !$this->endWith($origin, '.message.tryagain') && !$this->endWith($origin, '.message.finalretry')) {
                     continue;
                 }
 
-                if ((time() - filectime($originPath)) > 2 * 24 * 3600) { // file is old enough to process
+                if ((time() - filectime($origin)) > 2 * 24 * 3600) { // file is old enough to process
                     continue;
                 }
 
-                $message = unserialize(file_get_contents($file->getRealPath()));
+                $message = unserialize(file_get_contents($origin));
                 if ($message === false || !is_object($message) || get_class($message) !== 'Swift_Message') {
                     continue;
                 }
 
-                $cleanPath = str_replace(['.finalretry', '.sending', '.tryagain'], '', $originPath);
-                $sending = $cleanPath . '.sending';
-                if (!rename($originPath, $sending)) {
+                $clean = str_replace(['.finalretry', '.sending', '.tryagain'], '', $origin);
+                $sending = $clean . '.sending';
+                if (!rename($origin, $sending)) {
                     continue;
                 }
 
@@ -167,16 +167,16 @@ class SendEmailCommand extends ModeratedCommand
                     ]
                 ]);
                 $command->getHandlerList()->appendSign(
-                    Middleware::mapResult(function (ResultInterface $result) use ($originPath, $cleanPath, $sending) {
+                    Middleware::mapResult(function (ResultInterface $result) use ($origin, $clean, $sending) {
                         if ($result->get('@metadata')['statusCode'] == 200) {
                             unlink($sending);
                         } else {
-                            if ($this->endWith($originPath, '.finalretry')) {
+                            if ($this->endWith($origin, '.finalretry')) {
                                 unlink($sending);
-                            } else if (!$this->endWith($originPath, '.tryagain')) {
-                                rename($sending, $cleanPath . 'finalretry');
-                            } else if (!$this->endWith($originPath, '.sending')) {
-                                rename($sending, $cleanPath . 'tryagain');
+                            } else if (!$this->endWith($origin, '.tryagain')) {
+                                rename($sending, $clean . 'finalretry');
+                            } else if (!$this->endWith($origin, '.sending')) {
+                                rename($sending, $clean . 'tryagain');
                             }
                         }
 
