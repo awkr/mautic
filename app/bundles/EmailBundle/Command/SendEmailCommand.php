@@ -173,9 +173,9 @@ class SendEmailCommand extends ModeratedCommand
                         } else {
                             if ($this->endWith($origin, '.finalretry')) {
                                 unlink($sending);
-                            } else if (!$this->endWith($origin, '.tryagain')) {
+                            } else if ($this->endWith($origin, '.tryagain')) {
                                 rename($sending, $clean . '.finalretry');
-                            } else if (!$this->endWith($origin, '.sending')) {
+                            } else if ($this->endWith($origin, '.sending')) {
                                 rename($sending, $clean . '.tryagain');
                             }
                         }
