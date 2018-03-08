@@ -67,7 +67,7 @@ class SendEmailCommand extends ModeratedCommand
             $sent = 0;
 
             $pool = new CommandPool($sesClient, $generator($files), [
-                'concurrency' => 150,
+                'concurrency' => 250,
                 'before' => function (CommandInterface $cmd, $iterKey) {
                 },
                 'fulfilled' => function (ResultInterface $result, $iterKey, PromiseInterface $aggregatePromise) use (&$sent) {
