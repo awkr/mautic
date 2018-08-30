@@ -89,6 +89,7 @@ class SendEmailCommand extends ModeratedCommand
 
             $this->logger->info('done', ['sent' => $sent]);
 
+            $this->uploadUnsendEmail($files);
             return 0;
         } catch (\Exception $e) {
             $this->logger->err('exception', ['message' => $e->getMessage()]);
@@ -195,5 +196,39 @@ class SendEmailCommand extends ModeratedCommand
         $testlen = strlen($test);
         if ($testlen > $strlen) return false;
         return substr_compare($string, $test, $strlen - $testlen, $testlen) === 0;
+    }
+
+    protected function uploadUnsendEmail($files){
+        $unSendEmail = 0;
+        foreach ($files as $file) {
+            $origin = $file->getRealPath();
+
+            if (!$this->endWith($origin, '.message') && !$this->endWith($origin, '.message.sending')
+                && !$this->endWith($origin, '.message.tryagain') && !$this->endWith($origin, '.message.finalretry')) {
+                continue;
+            }
+
+            if ((time() - filectime($origin)) > 2 * 24 * 3600) { // file is old enough to process
+                continue;
+            }
+
+            $message = unserialize(file_get_contents($origin));
+            if ($message === false || !is_object($message) || get_class($message) !== 'Swift_Message') {
+                continue;
+            }
+            $unSendEmail++;
+        }
+        $parameters = $this->getConfig();
+        if(!isset($parameters['statsd_host']) || !isset($parameters['statsd_port'])){
+            $this->logger->err('please config statsd');
+            return;
+        }
+        if(!class_exists('\Domnikl\Statsd\Connection\UdpSocket') || !class_exists('\Domnikl\Statsd\Client')){
+            $this->logger->err('please use comporse install domnikl/statsd');
+            return;
+        }
+        $connection = new \Domnikl\Statsd\Connection\UdpSocket($parameters['statsd_host'], $parameters['statsd_port']);
+        $statsd = new \Domnikl\Statsd\Client($connection, "mautic.email");
+        $statsd->count("UnsentCount", $unSendEmail);
     }
 }
